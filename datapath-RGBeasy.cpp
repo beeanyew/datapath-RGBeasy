@@ -19,23 +19,24 @@ RGBINPUTINFO inputinfo;
 uint16_t num_inputs = 0;
 uint16_t cur_texture = 0;
 
-static struct obs_source_info rgbeasy_info = {
-	.id = "datapath_rgbeasy_source",
-	.type = OBS_SOURCE_TYPE_INPUT,
-	.output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_ASYNC,
-	.get_name = rgbeasy_getname,
-	.create = rgbeasy_create,
-	.destroy = rgbeasy_destroy,
-	.update = rgbeasy_update,
-	.get_width = rgbeasy_getwidth,
-	.get_height = rgbeasy_getheight,
-	//.video_render = rgbeasy_render,
-	.get_properties = rgbeasy_properties,
-	.get_defaults = rgbeasy_defaults,
-};
-
 bool obs_module_load()
 {
+	obs_source_info rgbeasy_info = {};
+	rgbeasy_info.id = "datapath_rgbeasy_source";
+	rgbeasy_info.type = OBS_SOURCE_TYPE_INPUT;
+	rgbeasy_info.output_flags = OBS_SOURCE_VIDEO | OBS_SOURCE_ASYNC;
+	rgbeasy_info.get_name = rgbeasy_getname;
+	rgbeasy_info.create = rgbeasy_create;
+	rgbeasy_info.destroy = rgbeasy_destroy;
+	rgbeasy_info.update = rgbeasy_update;
+	rgbeasy_info.get_width = rgbeasy_getwidth;
+	rgbeasy_info.get_height = rgbeasy_getheight;
+	rgbeasy_info.show = rgbeasy_show;
+	rgbeasy_info.hide = rgbeasy_hide;
+	//rgbeasy_info.video_render = rgbeasy_render;
+	rgbeasy_info.get_properties = rgbeasy_properties;
+	rgbeasy_info.get_defaults = rgbeasy_defaults;
+
 	unsigned long error = 0;
 	unsigned char cur_input = 0;
 	signed long livestream_available = 0;
@@ -87,7 +88,7 @@ static const char *rgbeasy_getname(void* type_data)
 
 static uint32_t rgbeasy_getwidth(void *data)
 {
-	struct rgbeasy_src *srcdata = data;
+	struct rgbeasy_src *srcdata = (rgbeasy_src *)data;
 
 	//return 640;
 	return srcdata->cx;
@@ -95,7 +96,7 @@ static uint32_t rgbeasy_getwidth(void *data)
 
 static uint32_t rgbeasy_getheight(void *data)
 {
-	struct rgbeasy_src *srcdata = data;
+	struct rgbeasy_src *srcdata = (rgbeasy_src*)data;
 
 	//return 480;
 	return srcdata->cy;
@@ -137,6 +138,27 @@ static obs_properties_t *rgbeasy_properties(void *unused)
 	obs_properties_add_int(props, "contrast",
 		obs_module_text("Contrast"), 0, 255, 1);
 
+	obs_properties_add_int(props, "brightness_r",
+		obs_module_text("Brightness (Red)"), 0, 512, 1);
+
+	obs_properties_add_int(props, "brightness_g",
+		obs_module_text("Brightness (Green)"), 0, 512, 1);
+
+	obs_properties_add_int(props, "brightness_b",
+		obs_module_text("Brightness (Blue)"), 0, 512, 1);
+
+	obs_properties_add_int(props, "contrast_r",
+		obs_module_text("Contrast (Red)"), 0, 512, 1);
+
+	obs_properties_add_int(props, "contrast_g",
+		obs_module_text("Contrast (Green)"), 0, 512, 1);
+
+	obs_properties_add_int(props, "contrast_b",
+		obs_module_text("Contrast (Blue)"), 0, 512, 1);
+
+	obs_properties_add_int(props, "contrast_b",
+		obs_module_text("Color Space"), 0, RGB_COLOURDOMAINDETECT_AUTO, 1);
+
 	obs_properties_add_int(props, "num_nibbles",
 		obs_module_text("Number of nibbles"), 0, 14, 1);
 
@@ -149,7 +171,7 @@ void set_capture_defaults(struct rgbeasy_src *srcdata) {
 		return;
 	}
 
-	long width = 0, height = 0;
+	unsigned long width = 0, height = 0;
 	long x = 0, y = 0;
 
 	signed long phase;
@@ -188,88 +210,115 @@ static void rgbeasy_defaults(obs_data_t* settings)
 	obs_data_set_default_int(settings, "capture_phase", 0);
 	obs_data_set_default_int(settings, "black_level", 8);
 	obs_data_set_default_int(settings, "brightness", 32);
+	obs_data_set_default_int(settings, "brightness_r", 128);
+	obs_data_set_default_int(settings, "brightness_g", 128);
+	obs_data_set_default_int(settings, "brightness_b", 128);
 	obs_data_set_default_int(settings, "contrast", 128);
+	obs_data_set_default_int(settings, "contrast_r", 256);
+	obs_data_set_default_int(settings, "contrast_g", 256);
+	obs_data_set_default_int(settings, "contrast_b", 256);
 	obs_data_set_default_int(settings, "num_nibbles", 1);
 }
 
 #define FORCE(a) ret = 55; force_loops = 0; while(force_loops < 3000 &&ret != 0 && ret != RGB_ERROR_INVALIDDATA && ret != RGB_ERROR_UNKNOWN) { ret = a; }
 #define CHKERR(a) if (force_loops == 3000) { blog(LOG_WARNING, "Error code %8X attempting to apply RGBeasy setting %d.", ret, a); }
+
 void reset_capture_settings(struct rgbeasy_src *srcdata) {
 	if (srcdata->hrgb == (HRGB)NULL || srcdata->settings == NULL) return;
 	unsigned long ret = 55;
 	unsigned int force_loops = 0;
 
 	if (obs_data_get_int(srcdata->settings, "capture_width") != 0 && obs_data_get_int(srcdata->settings, "output_width") != 0 && obs_data_get_int(srcdata->settings, "output_height") != 0) {
-		FORCE(RGBSetOutputSize(srcdata->hrgb, obs_data_get_int(srcdata->settings, "output_width"), obs_data_get_int(srcdata->settings, "output_height")));
-		CHKERR(1);
-		FORCE(RGBSetCaptureWidth(srcdata->hrgb, obs_data_get_int(srcdata->settings, "output_width")));
-		CHKERR(2);
-		FORCE(RGBSetCaptureHeight(srcdata->hrgb, obs_data_get_int(srcdata->settings, "output_height")));
-		CHKERR(3);
-		FORCE(RGBSetHorPosition(srcdata->hrgb, obs_data_get_int(srcdata->settings, "position_x")));
-		CHKERR(4);
-		FORCE(RGBSetVerPosition(srcdata->hrgb, obs_data_get_int(srcdata->settings, "position_y")));
-		CHKERR(5);
-		FORCE(RGBSetPhase(srcdata->hrgb, obs_data_get_int(srcdata->settings, "capture_phase")));
-		CHKERR(6);
-		FORCE(RGBSetBlackLevel(srcdata->hrgb, obs_data_get_int(srcdata->settings, "black_level")));
-		CHKERR(7);
-		FORCE(RGBSetBrightness(srcdata->hrgb, obs_data_get_int(srcdata->settings, "brightness")));
-		CHKERR(8);
-		FORCE(RGBSetContrast(srcdata->hrgb, obs_data_get_int(srcdata->settings, "contrast")));
-		CHKERR(9);
-		FORCE(RGBSetHorScale(srcdata->hrgb, obs_data_get_int(srcdata->settings, "capture_width")));
-		CHKERR(10);
+		FORCE(RGBSetOutputSize(srcdata->hrgb, (unsigned long)obs_data_get_int(srcdata->settings, "output_width"), (unsigned long)obs_data_get_int(srcdata->settings, "output_height")));
+		FORCE(RGBSetCaptureWidth(srcdata->hrgb, (unsigned long)obs_data_get_int(srcdata->settings, "output_width")));
+		FORCE(RGBSetCaptureHeight(srcdata->hrgb, (unsigned long)obs_data_get_int(srcdata->settings, "output_height")));
+		FORCE(RGBSetHorPosition(srcdata->hrgb, (unsigned long)obs_data_get_int(srcdata->settings, "position_x")));
+		FORCE(RGBSetVerPosition(srcdata->hrgb, (unsigned long)obs_data_get_int(srcdata->settings, "position_y")));
+		FORCE(RGBSetPhase(srcdata->hrgb, (unsigned long)obs_data_get_int(srcdata->settings, "capture_phase")));
+		FORCE(RGBSetBlackLevel(srcdata->hrgb, (unsigned long)obs_data_get_int(srcdata->settings, "black_level")));
+		FORCE(RGBSetBrightness(srcdata->hrgb, (unsigned long)obs_data_get_int(srcdata->settings, "brightness")));
+		FORCE(RGBSetContrast(srcdata->hrgb, (unsigned long)obs_data_get_int(srcdata->settings, "contrast")));
+		FORCE(RGBSetHorScale(srcdata->hrgb, (unsigned long)obs_data_get_int(srcdata->settings, "capture_width")));
+		uint32_t b_r, b_g, b_b, c_r, c_g, c_b;
+		b_r = (unsigned long)obs_data_get_int(srcdata->settings, "brightness_r");
+		b_g = (unsigned long)obs_data_get_int(srcdata->settings, "brightness_g");
+		b_b = (unsigned long)obs_data_get_int(srcdata->settings, "brightness_b");
+		c_r = (unsigned long)obs_data_get_int(srcdata->settings, "contrast_r");
+		c_g = (unsigned long)obs_data_get_int(srcdata->settings, "contrast_g");
+		c_b = (unsigned long)obs_data_get_int(srcdata->settings, "contrast_b");
+		RGBSetColourBalance(srcdata->hrgb, b_r, b_g, b_b, c_r, c_g, c_b);
+		RGBSetColourDomain(srcdata->hrgb, (COLOURDOMAINDETECT)obs_data_get_int(srcdata->settings, "color_space"));
 	}
 
 	return;
+}
+
+static void rgbeasy_show(void* data) {
+	struct rgbeasy_src* srcdata = (rgbeasy_src *)data;
+	if (srcdata->capture_active)
+		return;
+	blog(LOG_INFO, "Called rgbeasy_show for source %s", obs_source_get_name(srcdata->src));
+
+	/*RGBSetFrameCapturedFn(srcdata->hrgb, getframe, (ULONG_PTR)srcdata);
+	blog(LOG_INFO, "Show: Set FrameCapturedFn");
+	RGBSetNoSignalFn(srcdata->hrgb, nosignal, (ULONG_PTR)srcdata);
+	blog(LOG_INFO, "Show: Set NoSignalFn");
+	RGBSetValueChangedFn(srcdata->hrgb, valuechanged, (ULONG_PTR)srcdata);
+	blog(LOG_INFO, "Show: Set ValueChangedFn");
+	RGBSetWindow(srcdata->hrgb, NULL);
+	blog(LOG_INFO, "Show: Set Window");*/
+	rgbeasy_update(data, srcdata->settings);
+	//RGBStartCapture(srcdata->hrgb);
+	blog(LOG_INFO, "Show: Started Capture");
+	srcdata->capture_active = true;
+}
+
+static void rgbeasy_hide(void* data) {
+	struct rgbeasy_src* srcdata = (rgbeasy_src*)data;
+	if (srcdata->hrgb == 0)
+		return;
+	blog(LOG_INFO, "Called rgbeasy_hide for source %s", obs_source_get_name(srcdata->src));
+
+	srcdata->capture_active = false;
+	RGBUseOutputBuffers(srcdata->hrgb, FALSE);
+	while (srcdata->grabbing_frame) { os_sleep_ms(0); }
+	while (RGBStopCapture(srcdata->hrgb) != RGBINPUT_NOERROR) {}
+	RGBCloseInput(srcdata->hrgb);
+	RGBSetFrameCapturedFn(srcdata->hrgb, NULL, (ULONG_PTR)srcdata);
+	RGBSetValueChangedFn(srcdata->hrgb, NULL, (ULONG_PTR)srcdata);
+	RGBSetNoSignalFn(srcdata->hrgb, NULL, (ULONG_PTR)srcdata);
+	srcdata->hrgb = 0;
+	blog(LOG_INFO, "Hide: Stopped capture");
+	/*RGBSetFrameCapturedFn(srcdata->hrgb, NULL, (ULONG_PTR)srcdata);
+	blog(LOG_INFO, "Hide: Set FrameCapturedFn");
+	RGBSetNoSignalFn(srcdata->hrgb, NULL, (ULONG_PTR)srcdata);
+	blog(LOG_INFO, "Hide: Set NoSignalFn");
+	RGBSetValueChangedFn(srcdata->hrgb, NULL, (ULONG_PTR)srcdata);
+	blog(LOG_INFO, "Hide: Set ValueChangedFn");*/
 }
 #undef FORCE
 #undef CHKERR
 
 static void rgbeasy_destroy(void *data)
 {
-	struct rgbeasy_src *srcdata = data;
-
-	obs_enter_graphics();
-
-	obs_source_output_video(srcdata->src, NULL);
+	struct rgbeasy_src *srcdata = (rgbeasy_src*)data;
 
 	if (srcdata->hrgb != 0) {
+		RGBSetFrameCapturedFn(srcdata->hrgb, NULL, (ULONG_PTR)srcdata);
 		RGBSetValueChangedFn(srcdata->hrgb, NULL, (ULONG_PTR)srcdata);
+		RGBUseOutputBuffers(srcdata->hrgb, FALSE);
+		while (srcdata->grabbing_frame) { os_sleep_ms(0); }
 		RGBStopCapture(srcdata->hrgb);
 		RGBCloseInput(srcdata->hrgb);
 		srcdata->hrgb = 0;
 	}
 
-	for (uint32_t i = 0; i < 16; i++) {
-		if (srcdata->textures[i] != NULL) {
-			gs_texture_destroy(srcdata->textures[i]);
-			srcdata->textures[i] = NULL;
-		}
-	}
-	if (srcdata->vbuf != NULL) {
-		gs_vertexbuffer_destroy(srcdata->vbuf);
-		srcdata->vbuf = NULL;
-	}
-	if (srcdata->draw_effect != NULL) {
-		gs_effect_destroy(srcdata->draw_effect);
-		srcdata->draw_effect = NULL;
-	}
-	if (srcdata->texbuf != NULL) {
-		bfree(srcdata->texbuf);
-		srcdata->texbuf = NULL;
-	}
-	if (srcdata->cur_tex != NULL) {
-		gs_texture_destroy(srcdata->cur_tex);
-	}
-
-	obs_leave_graphics();
+	obs_source_output_video(srcdata->src, NULL);
 
 	bfree(srcdata);
 }
 
-void set_frame_crap(struct obs_source_frame *frm, int width, int height) {
+void set_frame_crap(struct obs_source_frame2 *frm, int width, int height) {
 	frm->color_range_max[0] =
 		frm->color_range_max[1] =
 		frm->color_range_max[2] = 1.0f;
@@ -277,7 +326,7 @@ void set_frame_crap(struct obs_source_frame *frm, int width, int height) {
 		frm->color_range_min[1] =
 		frm->color_range_min[2] = 0.0f;
 	frm->format = VIDEO_FORMAT_BGRX;
-	frm->full_range = true;
+	frm->range = VIDEO_RANGE_FULL;
 	frm->width = width;
 	frm->height = height;
 	frm->linesize[0] = width * 4;
@@ -285,7 +334,7 @@ void set_frame_crap(struct obs_source_frame *frm, int width, int height) {
 
 static void *rgbeasy_create(obs_data_t *settings, obs_source_t *source)
 {
-	struct rgbeasy_src *srcdata = bzalloc(sizeof(struct rgbeasy_src));
+	struct rgbeasy_src *srcdata = (rgbeasy_src*)bzalloc(sizeof(struct rgbeasy_src));
 	
 	srcdata->src = source;
 	srcdata->cur_input = 1;
@@ -293,20 +342,11 @@ static void *rgbeasy_create(obs_data_t *settings, obs_source_t *source)
 	srcdata->cx = 640;
 	srcdata->cy = 480;
 	srcdata->newlycreated = true;
-
-	for (uint32_t i = 0; i < 16; i++) {
-		if (srcdata->textures[i] != NULL) {
-			srcdata->textures[i] = NULL;
-		}
-	}
+	srcdata->capture_active = false;
 
 	set_frame_crap(&srcdata->video_frame, 640, 480);
-	srcdata->texbuf = NULL;
-
-	srcdata->cur_tex = gs_texture_create(640, 480, GS_BGRX, 1, NULL, GS_DYNAMIC);
 
 	rgbeasy_update(srcdata, settings);
-	srcdata->cur_texture = 0;
 
 	uint32_t flags = obs_source_get_flags(source);
 	obs_source_set_async_unbuffered(source, true);
@@ -316,16 +356,16 @@ static void *rgbeasy_create(obs_data_t *settings, obs_source_t *source)
 	return srcdata;
 }
 
-bool capture_active = false;
-
 static void rgbeasy_update(void *data, obs_data_t *settings)
 {
-	struct rgbeasy_src *srcdata = data;
+	struct rgbeasy_src *srcdata = (rgbeasy_src*)data;
 	bool restart_input = false;
 
 	if (settings == NULL) return;
 
 	srcdata->settings = settings;
+
+	blog(LOG_INFO, "Called rgbeasy_update on %s.", obs_source_get_name(srcdata->src));
 
 	unsigned long result = 0;
 
@@ -340,9 +380,9 @@ static void rgbeasy_update(void *data, obs_data_t *settings)
 		restart_input = true;
 	}
 
-	if (restart_input || srcdata->newlycreated) {
+	if (restart_input || srcdata->newlycreated || !srcdata->capture_active) {
 		if (srcdata->hrgb != 0) {
-			capture_active = false;
+			srcdata->capture_active = false;
 			RGBSetFrameCapturedFn(srcdata->hrgb, NULL, (ULONG_PTR)srcdata);
 			RGBStopCapture(srcdata->hrgb);
 			RGBCloseInput(srcdata->hrgb);
@@ -359,21 +399,22 @@ static void rgbeasy_update(void *data, obs_data_t *settings)
 		RGBSetDMADirect(srcdata->hrgb, 1);
 		RGBSetPixelFormat(srcdata->hrgb, RGB_PIXELFORMAT_RGB24);
 		RGBSetFrameDropping(srcdata->hrgb, 0);
-		if (RGBSetLiveStream(srcdata->hrgb, 1) != 0) {
+		if (RGBSetLiveStream(srcdata->hrgb, LIVESTREAM_1) != 0) {
 			blog(LOG_INFO, "Failed to enable LiveStream for input %d", srcdata->cur_input);
 		}
 	
 		RGBSetFrameCapturedFn(srcdata->hrgb, getframe, (ULONG_PTR)srcdata);
 		RGBSetNoSignalFn(srcdata->hrgb, nosignal, (ULONG_PTR)srcdata);
 		RGBSetValueChangedFn(srcdata->hrgb, valuechanged, (ULONG_PTR)srcdata);
+		RGBSetWindow(srcdata->hrgb, NULL);
 		RGBStartCapture(srcdata->hrgb);
-		capture_active = true;
+		srcdata->capture_active = true;
+		srcdata->first_frame = 1;
 
 		set_capture_defaults(srcdata);
 		//blog(LOG_INFO, "We're past the capture defaults.");
 		obs_source_update_properties(srcdata->src);
 		//blog(LOG_INFO, "Properties updated.");
-
 
 		//RGBGetOutputSize(srcdata->hrgb, &srcdata->cx, &srcdata->cy);
 	}
@@ -381,61 +422,35 @@ static void rgbeasy_update(void *data, obs_data_t *settings)
 	if (srcdata->newlycreated) srcdata->newlycreated = false;
 
 	reset_capture_settings(srcdata);
+	return;
 
 capture_setup_error:;
-
-	if (srcdata->draw_effect == NULL) {
-		char *effect_file = NULL;
-		char *error_string = NULL;
-
-		effect_file =
-			obs_module_file("default.effect");
-
-		if (effect_file) {
-			obs_enter_graphics();
-			srcdata->draw_effect = gs_effect_create_from_file(
-				effect_file, &error_string);
-			obs_leave_graphics();
-
-			bfree(effect_file);
-			if (error_string != NULL)
-				bfree(error_string);
-		}
-	}
+	printf("Something went wrong with the capture setup.");
 }
 
 static void rgbeasy_render(void *data, gs_effect_t *effect)
 {
-	struct rgbeasy_src *srcdata = data;
-	if (srcdata == NULL) return;
-
-	gs_reset_blend_state();
-	if (srcdata->cur_tex != NULL) {
-		gs_effect_set_texture(gs_effect_get_param_by_name(effect, "image"), srcdata->cur_tex);
-		gs_draw_sprite(srcdata->cur_tex, 0, srcdata->cx, srcdata->cy);
-	}
-	/*else {
-		blog(LOG_INFO, "FAAACK IS IT NULL!!!");
-	}*/
-
+	UNUSED_PARAMETER(data);
 	UNUSED_PARAMETER(effect);
 }
 
 void RGBCBKAPI getframe(HWND hWnd, HRGB hRGB, LPBITMAPINFOHEADER bitinfo, void *pBitmapBits, ULONG_PTR userData) {
 	struct rgbeasy_src *srcdata = (struct rgbeasy_src *)userData;
 
-	if (!obs_source_showing(srcdata->src))
-		return;
-
 	//blog(LOG_INFO, "We're here");
 
 	uint64_t start = 0, end = 0;
-	uint32_t i = 0;
+	size_t i = 0;
 
 	float time1, time2;
 
-	if (!capture_active || !pBitmapBits)
+	if (hRGB == 0 || !bitinfo || !pBitmapBits || !userData || !srcdata->capture_active || !srcdata->hrgb)
 		return;
+
+	if (srcdata->first_frame) {
+		srcdata->first_frame = 0;
+		return;
+	}
 
 	start = os_gettime_ns();
 
@@ -447,12 +462,8 @@ void RGBCBKAPI getframe(HWND hWnd, HRGB hRGB, LPBITMAPINFOHEADER bitinfo, void *
 
 	unsigned long width, height;
 
-	if (pBitmapBits == NULL) return;
-
 	if (bitinfo->biWidth == 0 || -(bitinfo->biHeight) == 0)
 		return;
-	//else
-//		blog(LOG_INFO, "And we keep going.");
 
 	width = bitinfo->biWidth;
 	height = -(bitinfo->biHeight);
@@ -464,12 +475,20 @@ void RGBCBKAPI getframe(HWND hWnd, HRGB hRGB, LPBITMAPINFOHEADER bitinfo, void *
 
 	if (width != srcdata->cx || height != srcdata->cy)
 		blog(LOG_INFO, "Allocating %lld x %lld * 4 bytes (%lld)", width, height, width * height * 4);
-	unsigned int *tmpbuf = bzalloc((size_t)width * (size_t)height * 4);
+	unsigned int *tmpbuf = (unsigned int *)bzalloc((size_t)width * (size_t)height * 4);
 	if (!tmpbuf)
 		return;
 
-	//blog(LOG_INFO, "Looping: %ld x %ld", width, height);
-	for (i = 0; i + 16 <= (width * height); i += 16) {
+	if (hRGB == 0 || !bitinfo || !pBitmapBits || !userData || !srcdata->capture_active || !srcdata->hrgb)
+		return;
+
+	os_sleep_ms(0);
+	if (!srcdata->capture_active)
+		goto race_failure;
+
+	while (!srcdata->grabbing_frame)
+		srcdata->grabbing_frame = true;
+	for (i = 0; i + 16 < (uint64_t)width * ((uint64_t)height - 1); i += 16) {
 		memcpy(&tmpbuf[i], (uint8_t*)pBitmapBits + (i * 3), 3);
 		memcpy(&tmpbuf[i + 1], (uint8_t*)pBitmapBits + ((i + 1) * 3), 3);
 		memcpy(&tmpbuf[i + 2], (uint8_t*)pBitmapBits + ((i + 2) * 3), 3);
@@ -487,24 +506,20 @@ void RGBCBKAPI getframe(HWND hWnd, HRGB hRGB, LPBITMAPINFOHEADER bitinfo, void *
 		memcpy(&tmpbuf[i + 14], (uint8_t*)pBitmapBits + ((i + 14) * 3), 3);
 		memcpy(&tmpbuf[i + 15], (uint8_t*)pBitmapBits + ((i + 15) * 3), 3);
 	}
-	while (i < width * height) {
+	while (i < (uint64_t)width * (uint64_t)height) {
 		memcpy(&tmpbuf[i], (uint8_t*)pBitmapBits + (i * 3), 3);
 		i++;
 	}
-
+	while(srcdata->grabbing_frame)
+		srcdata->grabbing_frame = false;
 
 	srcdata->video_frame.data[0] = (uint8_t *)tmpbuf;
 	srcdata->video_frame.timestamp = (uint64_t)start;
 	obs_source_output_video2(srcdata->src, &srcdata->video_frame);
-
-	bfree(tmpbuf);
-
-	goto baller;
-
-//skip_frame:;
-	//blog(LOG_WARNING, "Skipping frame for some reason.");
-baller:;
-	//obs_leave_graphics();
+race_failure:;
+	if (tmpbuf)
+		bfree(tmpbuf);
+	return;
 }
 
 void RGBCBKAPI nosignal(HWND hWnd, HRGB hRGB, ULONG_PTR userData) {
@@ -514,48 +529,30 @@ void RGBCBKAPI nosignal(HWND hWnd, HRGB hRGB, ULONG_PTR userData) {
 	obs_source_output_video(srcdata->src, NULL);
 }
 
+#define CHKCHANGED(a, b) if (value_info->a.BChanged) { obs_data_set_int(srcdata->settings, b, value_info->a.Value); };
+
 void RGBCBKAPI valuechanged(HWND hWnd, HRGB hrgb, PRGBVALUECHANGEDINFO value_info, ULONG_PTR userData)
 {
 	struct rgbeasy_src* srcdata = (struct rgbeasy_src*)userData;
 
 	long width = 0, height = 0;
 
-	if (value_info->CaptureWidth.BChanged) {
-		blog(LOG_INFO, "Capture width changed to %ld", value_info->CaptureWidth.Value);
-		obs_data_set_int(srcdata->settings, "output_width", value_info->CaptureWidth.Value);
-	}
-	if (value_info->CaptureHeight.BChanged) {
-		blog(LOG_INFO, "Capture height changed to %ld", value_info->CaptureHeight.Value);
-		obs_data_set_int(srcdata->settings, "output_height", value_info->CaptureHeight.Value);
-	}
-	if (value_info->HorScale.BChanged) {
-		blog(LOG_INFO, "HSize changed to %ld", value_info->HorScale.Value);
-		obs_data_set_int(srcdata->settings, "capture_width", value_info->HorScale.Value);
-	}
-	if (value_info->HorPosition.BChanged) {
-		blog(LOG_INFO, "HPos changed to %ld", value_info->HorPosition.Value);
-		obs_data_set_int(srcdata->settings, "position_x", value_info->HorPosition.Value);
-	}
-	if (value_info->VerPosition.BChanged) {
-		blog(LOG_INFO, "VPos changed to %ld", value_info->VerPosition.Value);
-		obs_data_set_int(srcdata->settings, "position_y", value_info->VerPosition.Value);
-	}
-	if (value_info->Phase.BChanged) {
-		blog(LOG_INFO, "Phase changed to %ld", value_info->Phase.Value);
-		obs_data_set_int(srcdata->settings, "capture_phase", value_info->Phase.Value);
-	}
-	if (value_info->BlackLevel.BChanged) {
-		blog(LOG_INFO, "Black level changed to %ld", value_info->BlackLevel.Value);
-		obs_data_set_int(srcdata->settings, "black_level", value_info->BlackLevel.Value);
-	}
-	if (value_info->Brightness.BChanged) {
-		blog(LOG_INFO, "Brightness changed to %ld", value_info->Brightness.Value);
-		obs_data_set_int(srcdata->settings, "brightness", value_info->Brightness.Value);
-	}
-	if (value_info->Contrast.BChanged) {
-		blog(LOG_INFO, "Contrast changed to %ld", value_info->Contrast.Value);
-		obs_data_set_int(srcdata->settings, "contrast", value_info->Contrast.Value);
-	}
+	CHKCHANGED(CaptureWidth, "output_width");
+	CHKCHANGED(CaptureHeight, "output_height");
+	CHKCHANGED(HorScale, "capture_width");
+	CHKCHANGED(HorPosition, "position_x");
+	CHKCHANGED(VerPosition, "position_y");
+	CHKCHANGED(Phase, "capture_phase");
+	CHKCHANGED(BlackLevel, "black_level");
+	CHKCHANGED(Brightness, "brightness");
+	CHKCHANGED(Contrast, "contrast");
+	CHKCHANGED(RedGain, "contrast_r");
+	CHKCHANGED(GreenGain, "contrast_g");
+	CHKCHANGED(BlueGain, "contrast_b");
+	CHKCHANGED(RedOffset, "brightness_r");
+	CHKCHANGED(GreenOffset, "brightness_g");
+	CHKCHANGED(BlueOffset, "brightness_b");
+	CHKCHANGED(ColourDomain, "color_space");
 
 	rgbeasy_update((void*)srcdata, srcdata->settings);
 }
